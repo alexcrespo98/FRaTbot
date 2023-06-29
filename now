@@ -1,7 +1,9 @@
-echo "# swag" >> README.md
-git init
-git add README.md
-git commit -m "first commit"
-git branch -M main
-git remote add origin https://github.com/alexcrespo98/swag.git
-git push -u origin main
+var button = document.getElementById("myButton");
+
+button.addEventListener("click", function() {
+  var newPositionX = Math.random() * (window.innerWidth - button.offsetWidth);
+  var newPositionY = Math.random() * (window.innerHeight - button.offsetHeight);
+
+  button.style.left = newPositionX + "px";
+  button.style.top = newPositionY + "px";
+});
