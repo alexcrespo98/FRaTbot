@@ -1,6 +1,7 @@
 /*
  * ESP32-C6 BLE Messaging - Proximal (Client/Central)
- * One-way: Client sends messages to Server
+ * Reads local thermistor and requests remote temperature data
+ * Serial Plotter friendly output
  */
 
 #include <BLEDevice.h>
@@ -10,12 +11,22 @@
 
 #define SERVICE_UUID        "12345678-1234-1234-1234-123456789abc"
 #define CHARACTERISTIC_UUID "87654321-4321-4321-4321-cba987654321"
+#define THERMISTOR_PIN      D0
 
 BLEClient* pClient;
 BLERemoteCharacteristic* pRemoteCharacteristic;
 BLEAdvertisedDevice* myDevice = nullptr;
 bool doConnect = false;
 bool connected = false;
+
+// Thermistor calculations
+const float BETA = 3950.0;
+const float R0 = 10000.0;
+const float T0 = 298.15;
+
+float localTemp = 0.0;
+float remoteTemp = 0.0;
+bool newRemoteTempReceived = false;
 
 class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice advertisedDevice) override {
@@ -55,8 +66,23 @@ bool connectToServer() {
   return true;
 }
 
+float readThermistor() {
+  int adcValue = analogRead(THERMISTOR_PIN);
+  float voltage = (adcValue / 4095.0) * 3.3;
+  
+  // Voltage divider: V = 3.3 * (10k / (R_thermistor + 10k))
+  // Solving for R_thermistor: R_thermistor = 10k * (3.3 - voltage) / voltage
+  float R_thermistor = 10000.0 * (3.3 - voltage) / voltage;
+  
+  // Steinhart-Hart equation with BETA parameter
+  float tempK = 1.0 / (1.0/T0 + (1.0/BETA) * log(R_thermistor/R0));
+  return tempK - 273.15; // Convert to Celsius
+}
+
 void setup() {
   Serial.begin(115200);
+  pinMode(THERMISTOR_PIN, INPUT);
+  
   BLEDevice::init("ProximalBLE");
 
   BLEScan* scan = BLEDevice::getScan();
@@ -76,17 +102,29 @@ void loop() {
     doConnect = false;
   }
 
-  // Read input from Serial and send to server
-  if (connected && Serial.available()) {
-    String msg = Serial.readStringUntil('\n');
-    msg.trim();
-    if (msg.length() > 0) {
-      uint8_t buf[msg.length()];
-      memcpy(buf, msg.c_str(), msg.length());
-      pRemoteCharacteristic->writeValue(buf, msg.length(), false); // false → write without response
-      Serial.print("[CLIENT] Sent to server: ");
-      Serial.println(msg);
+  // Read local thermistor
+  localTemp = readThermistor();
+
+  // Request temperature from server and get response
+  if (connected) {
+    String request = "TEMP_REQUEST";
+    uint8_t buf[request.length()];
+    memcpy(buf, request.c_str(), request.length());
+    pRemoteCharacteristic->writeValue(buf, request.length(), false);
+    
+    // Small delay to allow response
+    delay(10);
+    
+    // Try to read response
+    String response = pRemoteCharacteristic->readValue().c_str();
+    if (response.length() > 0 && response != "TEMP_REQUEST") {
+      remoteTemp = response.toFloat();
     }
+    
+    // Output for Serial Plotter (tab-separated, no labels after setup)
+    Serial.print(localTemp, 2);
+    Serial.print("\t");
+    Serial.println(remoteTemp, 2);
   }
 
   // Reconnect if disconnected
@@ -99,5 +137,5 @@ void loop() {
     BLEDevice::getScan()->start(0, false);
   }
 
-  delay(10);
+  delay(50); // 50ms interval for readings
 }
