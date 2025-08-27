@@ -1,9 +1,0 @@
-var button = document.getElementById("myButton");
-
-button.addEventListener("click", function() {
-  var newPositionX = Math.random() * (window.innerWidth - button.offsetWidth);
-  var newPositionY = Math.random() * (window.innerHeight - button.offsetHeight);
-
-  button.style.left = newPositionX + "px";
-  button.style.top = newPositionY + "px";
-});
