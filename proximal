@@ -2,6 +2,7 @@
  * ESP32-C6 BLE Messaging - Proximal (Client/Central)
  * Reads local thermistor and requests remote temperature data
  * Serial Plotter friendly output
+ * Also sends temps out TX (D6/GPIO16) to Teensy via Serial1
  */
 
 #include <BLEDevice.h>
@@ -12,6 +13,7 @@
 #define SERVICE_UUID        "12345678-1234-1234-1234-123456789abc"
 #define CHARACTERISTIC_UUID "87654321-4321-4321-4321-cba987654321"
 #define THERMISTOR_PIN      D0
+#define TX_PIN              16 // D6 on XIAO ESP32C6
 
 BLEClient* pClient;
 BLERemoteCharacteristic* pRemoteCharacteristic;
@@ -81,6 +83,7 @@ float readThermistor() {
 
 void setup() {
   Serial.begin(115200);
+  Serial1.begin(115200, SERIAL_8N1, -1, TX_PIN); // Only TX used for Teensy connection
   pinMode(THERMISTOR_PIN, INPUT);
   
   BLEDevice::init("ProximalBLE");
@@ -125,6 +128,11 @@ void loop() {
     Serial.print(localTemp, 2);
     Serial.print("\t");
     Serial.println(remoteTemp, 2);
+
+    // --- Also send temps out TX to Teensy ---
+    Serial1.print(localTemp, 2);
+    Serial1.print(",");
+    Serial1.println(remoteTemp, 2);
   }
 
   // Reconnect if disconnected
