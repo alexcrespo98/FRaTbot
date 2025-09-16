@@ -1,8 +1,10 @@
 /*
  * ESP32-C6 BLE Messaging - Proximal (Client/Central)
- * Reads local thermistor and requests remote temperature data
+ * Uses DS18B20 OneWire thermometer for local temperature
+ * Requests remote temperature data
  * Serial Plotter friendly output
- * Also sends temps out TX (D6/GPIO16) to Teensy via Serial1
+ * Sends temps out TX (D6/GPIO16) to Teensy via Serial1
+ * --- Added: Independent relay toggling every 1 second ---
  */
 
 #include <BLEDevice.h>
@@ -10,10 +12,14 @@
 #include <BLEUtils.h>
 #include <BLEScan.h>
 
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
 #define SERVICE_UUID        "12345678-1234-1234-1234-123456789abc"
 #define CHARACTERISTIC_UUID "87654321-4321-4321-4321-cba987654321"
-#define THERMISTOR_PIN      D0
-#define TX_PIN              16 // D6 on XIAO ESP32C6
+#define ONE_WIRE_BUS        D0        // DS18B20 data pin
+#define RELAY_PIN           D1        // Relay IN pin
+#define TX_PIN              16        // D6 on XIAO ESP32C6
 
 BLEClient* pClient;
 BLERemoteCharacteristic* pRemoteCharacteristic;
@@ -21,14 +27,17 @@ BLEAdvertisedDevice* myDevice = nullptr;
 bool doConnect = false;
 bool connected = false;
 
-// Thermistor calculations
-const float BETA = 3950.0;
-const float R0 = 10000.0;
-const float T0 = 298.15;
+// --- DallasTemperature Setup ---
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
 
 float localTemp = 0.0;
 float remoteTemp = 0.0;
-bool newRemoteTempReceived = false;
+
+// --- Relay control variables ---
+unsigned long lastRelayToggle = 0;
+bool relayState = false;
+const unsigned long relayInterval = 1000; // 1 second toggle
 
 class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice advertisedDevice) override {
@@ -68,26 +77,27 @@ bool connectToServer() {
   return true;
 }
 
-float readThermistor() {
-  int adcValue = analogRead(THERMISTOR_PIN);
-  float voltage = (adcValue / 4095.0) * 3.3;
-  
-  // Voltage divider: V = 3.3 * (10k / (R_thermistor + 10k))
-  // Solving for R_thermistor: R_thermistor = 10k * (3.3 - voltage) / voltage
-  float R_thermistor = 10000.0 * (3.3 - voltage) / voltage;
-  
-  // Steinhart-Hart equation with BETA parameter
-  float tempK = 1.0 / (1.0/T0 + (1.0/BETA) * log(R_thermistor/R0));
-  return tempK - 273.15; // Convert to Celsius
+// --- DS18B20 read ---
+float readDS18B20() {
+  sensors.requestTemperatures();
+  float tempC = sensors.getTempCByIndex(0);
+  if (tempC == DEVICE_DISCONNECTED_C) {
+    Serial.println("[CLIENT] Sensor error");
+    return NAN;
+  }
+  return tempC;
 }
 
 void setup() {
   Serial.begin(115200);
-  Serial1.begin(115200, SERIAL_8N1, -1, TX_PIN); // Only TX used for Teensy connection
-  pinMode(THERMISTOR_PIN, INPUT);
-  
-  BLEDevice::init("ProximalBLE");
+  Serial1.begin(115200, SERIAL_8N1, -1, TX_PIN); // Only TX used for Teensy
 
+  sensors.begin(); // start DS18B20
+
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW); // start relay off
+
+  BLEDevice::init("ProximalBLE");
   BLEScan* scan = BLEDevice::getScan();
   scan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
   scan->setActiveScan(true);
@@ -97,7 +107,15 @@ void setup() {
 }
 
 void loop() {
-  // Attempt connection if a server was found
+  // --- Independent Relay Toggling ---
+  unsigned long now = millis();
+  if (now - lastRelayToggle >= relayInterval) {
+    relayState = !relayState;
+    digitalWrite(RELAY_PIN, relayState ? HIGH : LOW);
+    lastRelayToggle = now;
+  }
+
+  // --- BLE connection handling ---
   if (doConnect && !connected) {
     if (connectToServer()) {
       Serial.println("[CLIENT] Connection established.");
@@ -105,37 +123,35 @@ void loop() {
     doConnect = false;
   }
 
-  // Read local thermistor
-  localTemp = readThermistor();
+  // --- Local temperature read ---
+  localTemp = readDS18B20();
 
-  // Request temperature from server and get response
+  // --- Remote temperature request ---
   if (connected) {
     String request = "TEMP_REQUEST";
     uint8_t buf[request.length()];
     memcpy(buf, request.c_str(), request.length());
     pRemoteCharacteristic->writeValue(buf, request.length(), false);
-    
-    // Small delay to allow response
-    delay(10);
-    
-    // Try to read response
+
+    delay(10); // allow response
+
     String response = pRemoteCharacteristic->readValue().c_str();
     if (response.length() > 0 && response != "TEMP_REQUEST") {
       remoteTemp = response.toFloat();
     }
-    
-    // Output for Serial Plotter (tab-separated, no labels after setup)
+
+    // Serial Plotter output
     Serial.print(localTemp, 2);
     Serial.print("\t");
     Serial.println(remoteTemp, 2);
 
-    // --- Also send temps out TX to Teensy ---
+    // TX to Teensy
     Serial1.print(localTemp, 2);
     Serial1.print(",");
     Serial1.println(remoteTemp, 2);
   }
 
-  // Reconnect if disconnected
+  // --- Reconnect if disconnected ---
   if (connected && pClient && !pClient->isConnected()) {
     Serial.println("[CLIENT] Lost connection. Restarting scan...");
     connected = false;
@@ -145,5 +161,5 @@ void loop() {
     BLEDevice::getScan()->start(0, false);
   }
 
-  delay(50); // 50ms interval for readings
+  delay(50); // 20 Hz update rate
 }
