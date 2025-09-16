@@ -1,0 +1,41 @@
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+#define ONE_WIRE_BUS D0      // DS18B20 data pin
+#define RELAY_PIN D1         // Relay IN pin
+
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+
+void setup() {
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW); // Start with relay off
+  Serial.begin(115200);
+  sensors.begin();
+  // Optional: sensors.setResolution(ONE_WIRE_BUS, 9); // Faster DS18B20 conversion
+  Serial.println("Temperature (C)");
+}
+
+// Relay control variables
+unsigned long lastRelayToggle = 0;
+bool relayState = false;
+const unsigned long relayInterval = 1000; // Toggle relay every 1 second
+
+void loop() {
+  // Read temperature
+  sensors.requestTemperatures();
+  float tempC = sensors.getTempCByIndex(0);
+
+  // Print temperature only
+  Serial.println(tempC, 2);
+
+  // Relay toggling logic
+  unsigned long now = millis();
+  if (now - lastRelayToggle >= relayInterval) {
+    relayState = !relayState;
+    digitalWrite(RELAY_PIN, relayState ? HIGH : LOW);
+    lastRelayToggle = now;
+  }
+
+  delay(100); // Temperature sample interval (10Hz)
+}
