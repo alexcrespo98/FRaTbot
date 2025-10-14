@@ -1,0 +1,73 @@
+// Dual Tasseron TSD thermistor reader (10 kΩ NTC assumed)
+// Arduino Nano, analog inputs A0 & A1, relay on A5
+
+const int sensorPin1 = A0;     // Thermistor 1
+const int sensorPin2 = A1;     // Thermistor 2
+const int relayPin = A5;       // Relay control pin
+
+const float seriesResistor = 10000.0; // 10k reference resistor (ohms)
+const float nominalResistance = 10000.0; // resistance at 25°C (ohms)
+const float nominalTemp = 25.0;         // nominal temperature (°C)
+const float betaCoefficient = 3950.0;   // Beta constant for common 10k NTC
+const int adcMax = 1023;                // 10-bit ADC on Nano
+
+void relayOn() {
+  digitalWrite(relayPin, HIGH);
+}
+void relayOff() {
+  digitalWrite(relayPin, LOW);
+}
+
+float readThermistor(int pin) {
+  int adcValue = analogRead(pin);
+  float voltage = adcValue * 5.0 / adcMax;
+  float resistance = seriesResistor * (5.0 / voltage - 1.0);
+
+  // Steinhart-Hart (Beta approximation)
+  float steinhart = resistance / nominalResistance;
+  steinhart = log(steinhart);
+  steinhart /= betaCoefficient;
+  steinhart += 1.0 / (nominalTemp + 273.15);
+  steinhart = 1.0 / steinhart;
+  steinhart -= 273.15;
+  return steinhart;
+}
+
+void setup() {
+  Serial.begin(9600);
+  delay(500); // Give serial time to initialize
+
+  pinMode(relayPin, OUTPUT);
+  relayOff(); // Default: relay OFF
+
+  // Send readiness and sensor mode info to TX (Serial)
+  Serial.println("DataBuddy Ready: Dual Thermistor Mode (A0, A1) + Relay (A5)");
+}
+
+void loop() {
+  // Check for relay control commands
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    cmd.toUpperCase();
+    if (cmd == "RELAY ON") {
+      relayOn();
+      Serial.println("Relay: ON");
+    } else if (cmd == "RELAY OFF") {
+      relayOff();
+      Serial.println("Relay: OFF");
+    }
+  }
+
+  float temp1 = readThermistor(sensorPin1);
+  float temp2 = readThermistor(sensorPin2);
+
+  // Send data in a format easy for DataBuddy to parse
+  Serial.print("T1=");
+  Serial.print(temp1, 2); // 2 decimal places
+  Serial.print("C, T2=");
+  Serial.print(temp2, 2);
+  Serial.println("C");
+
+  delay(100);
+}
