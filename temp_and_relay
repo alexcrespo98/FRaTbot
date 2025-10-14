@@ -1,9 +1,9 @@
-// Dual Tasseron TSD thermistor reader (10 kΩ NTC assumed)
+// Dual Tasseron TSD thermistor reader (10 kΩ NTC assumed) with precise onboard relay oscillation via serial commands.
 // Arduino Nano, analog inputs A0 & A1, relay on A5
 
-const int sensorPin1 = A0;     // Thermistor 1
-const int sensorPin2 = A1;     // Thermistor 2
-const int relayPin = A5;       // Relay control pin
+const int sensorPin1 = A0;
+const int sensorPin2 = A1;
+const int relayPin = A5;
 
 const float seriesResistor = 10000.0; // 10k reference resistor (ohms)
 const float nominalResistance = 10000.0; // resistance at 25°C (ohms)
@@ -11,19 +11,19 @@ const float nominalTemp = 25.0;         // nominal temperature (°C)
 const float betaCoefficient = 3950.0;   // Beta constant for common 10k NTC
 const int adcMax = 1023;                // 10-bit ADC on Nano
 
-void relayOn() {
-  digitalWrite(relayPin, HIGH);
-}
-void relayOff() {
-  digitalWrite(relayPin, LOW);
-}
+bool oscillate = false;
+float oscPeriod = 1.0; // seconds, default
+unsigned long oscHalfMillis = 500;
+unsigned long lastOsc = 0;
+bool relayState = false;
+
+void relayOn() { digitalWrite(relayPin, HIGH); relayState = true; }
+void relayOff() { digitalWrite(relayPin, LOW); relayState = false; }
 
 float readThermistor(int pin) {
   int adcValue = analogRead(pin);
   float voltage = adcValue * 5.0 / adcMax;
   float resistance = seriesResistor * (5.0 / voltage - 1.0);
-
-  // Steinhart-Hart (Beta approximation)
   float steinhart = resistance / nominalResistance;
   steinhart = log(steinhart);
   steinhart /= betaCoefficient;
@@ -36,38 +36,62 @@ float readThermistor(int pin) {
 void setup() {
   Serial.begin(9600);
   delay(500); // Give serial time to initialize
-
   pinMode(relayPin, OUTPUT);
-  relayOff(); // Default: relay OFF
-
-  // Send readiness and sensor mode info to TX (Serial)
-  Serial.println("DataBuddy Ready: Dual Thermistor Mode (A0, A1) + Relay (A5)");
+  relayOff();
+  Serial.println("DataBuddy Ready: Dual Thermistor Mode (A0, A1) + Relay (A5) + Onboard Osc");
 }
 
 void loop() {
-  // Check for relay control commands
+  // Handle serial commands
   if (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
     cmd.toUpperCase();
-    if (cmd == "RELAY ON") {
+
+    if (cmd.startsWith("OSCILLATE")) {
+      float p = cmd.substring(10).toFloat();
+      if (p > 0.05) { // minimal allowed period
+        oscPeriod = p;
+        oscHalfMillis = (unsigned long)((oscPeriod * 500.0)); // half period in ms
+        oscillate = true;
+        lastOsc = millis();
+        relayOff();
+        Serial.print("Oscillating relay, period: ");
+        Serial.println(oscPeriod, 2);
+      }
+    } else if (cmd == "STOP") {
+      oscillate = false;
+      relayOff();
+      Serial.println("Oscillation stopped, relay OFF");
+    } else if (cmd == "RELAY ON") {
+      oscillate = false;
       relayOn();
       Serial.println("Relay: ON");
     } else if (cmd == "RELAY OFF") {
+      oscillate = false;
       relayOff();
       Serial.println("Relay: OFF");
     }
   }
 
+  // Oscillation logic
+  if (oscillate) {
+    if (millis() - lastOsc >= oscHalfMillis) {
+      if (relayState) relayOff();
+      else relayOn();
+      lastOsc = millis();
+    }
+  }
+
+  // Always output temperatures
   float temp1 = readThermistor(sensorPin1);
   float temp2 = readThermistor(sensorPin2);
 
-  // Send data in a format easy for DataBuddy to parse
   Serial.print("T1=");
-  Serial.print(temp1, 2); // 2 decimal places
+  Serial.print(temp1, 2);
   Serial.print("C, T2=");
   Serial.print(temp2, 2);
   Serial.println("C");
 
-  delay(100);
+  delay(100); // 10 Hz reporting
 }
