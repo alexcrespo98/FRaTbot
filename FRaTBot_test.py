@@ -25,18 +25,11 @@ def relay_on():
 def relay_off():
     ser.write(b'RELAY OFF\n')
 
-def relay_oscillation_thread(half_period, stop_event):
-    relay_state = False
-    relay_off()
-    while not stop_event.is_set():
-        if relay_state:
-            relay_off()
-        else:
-            relay_on()
-        relay_state = not relay_state
-        # Wait for half period or until stop event is set
-        stop_event.wait(timeout=half_period)
-    relay_off()
+def relay_oscillate(period):
+    ser.write(f'OSCILLATE {period}\n'.encode())
+
+def relay_stop():
+    ser.write(b'STOP\n')
 
 # Get flow rate and suggest filename
 flow = input("Enter flow rate label for this test (e.g. 5GPM): ").strip()
@@ -72,16 +65,11 @@ for run in range(1, NUM_RUNS + 1):
         except ValueError:
             print("Please enter a valid number.")
 
-    half_period = osc_period / 2
-    stop_event = threading.Event()
-    osc_thread = threading.Thread(target=relay_oscillation_thread, args=(half_period, stop_event))
-    osc_thread.start()
-
-    print(f"\nRelay is now oscillating at {osc_period}s per cycle ({half_period}s ON, {half_period}s OFF).")
+    relay_oscillate(osc_period)
+    print(f"\nRelay is now oscillating at {osc_period}s per cycle ({osc_period/2}s ON, {osc_period/2}s OFF).")
     input(f"Press Enter when ready to START recording run {run} for {flow} ({DURATION}s)...")
 
     data = []
-
     start_time = time.time()
     for sample_count in range(SAMPLES_PER_RUN):
         now = time.time()
@@ -104,9 +92,7 @@ for run in range(1, NUM_RUNS + 1):
         if sleep_time > 0:
             time.sleep(sleep_time)
 
-    # End relay oscillation
-    stop_event.set()
-    osc_thread.join()
+    relay_stop()
     relay_off()
     print(f"Recorded {len(data)} samples for run {run}\n")
 
