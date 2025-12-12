@@ -102,6 +102,27 @@ This expands the dataset from ~13 samples to ~52 samples (3 augmentations per or
 - SVR (RBF): **MAE 0.108 GPM**, R² 0.997
 - Random Forest: **MAE 0.100 GPM**, R² 0.996
 
+### With Signal Processing Baseline Comparison
+
+```bash
+python ml_flow_prediction.py --compare-sp
+```
+
+This runs both the traditional FFT signal processing baseline AND the ML models for direct comparison. The signal processing baseline:
+- Computes FFT peaks for proximal and distal thermistors
+- Analyzes amplitude attenuation at target frequency (0.2 Hz)
+- Calculates amplitude difference and ratio metrics
+- Fits simple linear regression models
+- Shows Pearson correlations with flow rate
+
+You can also run the signal processing baseline standalone:
+
+```bash
+python signal_processing_baseline.py
+```
+
+This provides the traditional (non-ML) FFT-based approach for comparison.
+
 ## Data Format
 
 The framework expects CSV files with:
@@ -226,7 +247,7 @@ This confirms that the **thermal decay relationship between proximal and distal 
 - [ ] 1D CNN for raw time series classification
 - [ ] LSTM/GRU for temporal sequence modeling
 - [ ] Physics-based synthetic data generation
-- [ ] Comparison with FFT baseline from `signal_preprocessing.py`
+- [x] Comparison with FFT baseline (`signal_processing_baseline.py`)
 - [ ] Model export/save functionality
 - [ ] Hyperparameter optimization
 
@@ -254,12 +275,14 @@ This confirms that the **thermal decay relationship between proximal and distal 
 
 ```
 FRaTbot/
-├── ml_flow_prediction.py          # Main framework script
-├── requirements.txt                # Python dependencies
-├── FRaTbot_flowdata.csv           # Original data (35 columns, multiple freq)
-├── FRaTbot_flowdata_2.csv         # New data (14 columns, 0.2Hz only)
-├── ml_flow_prediction_results.png # Output visualization
-└── README_ML.md                    # This file
+├── ml_flow_prediction.py                   # Main ML framework script
+├── signal_processing_baseline.py           # FFT-based baseline (non-ML)
+├── requirements.txt                         # Python dependencies
+├── FRaTbot_flowdata.csv                    # Original data (35 columns, multiple freq)
+├── FRaTbot_flowdata_2.csv                  # New data (14 columns, 0.2Hz only)
+├── ml_flow_prediction_results.png          # ML output visualization
+├── signal_processing_baseline_results.png  # Signal processing output
+└── README_ML.md                             # This file
 ```
 
 ## Citation

@@ -684,4 +684,31 @@ if __name__ == "__main__":
     
     # Check if augmentation flag is passed
     use_aug = '--augment' in sys.argv or '-a' in sys.argv
+    
+    # Check if signal processing comparison is requested
+    compare_signal_processing = '--compare-sp' in sys.argv or '-c' in sys.argv
+    
+    if compare_signal_processing:
+        # Run signal processing baseline first
+        print("\n")
+        print("=" * 80)
+        print("RUNNING SIGNAL PROCESSING BASELINE FOR COMPARISON")
+        print("=" * 80)
+        print()
+        
+        try:
+            from signal_processing_baseline import SignalProcessingBaseline
+            csv_file = 'FRaTbot_flowdata_2.csv' if os.path.exists('FRaTbot_flowdata_2.csv') else 'FRaTbot_flowdata.csv'
+            baseline = SignalProcessingBaseline(csv_path=csv_file, target_freq=0.2, freq_tolerance=0.02)
+            baseline.run()
+        except Exception as e:
+            print(f"Warning: Could not run signal processing baseline: {e}")
+            print("Continuing with ML experiments...")
+        
+        print("\n")
+        print("=" * 80)
+        print("NOW RUNNING ML EXPERIMENTS FOR COMPARISON")
+        print("=" * 80)
+        print()
+    
     main(use_augmentation=use_aug, n_augmentations=3)
