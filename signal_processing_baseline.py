@@ -93,20 +93,63 @@ class SignalProcessingBaseline:
         print("SIGNAL PROCESSING BASELINE - FFT Analysis")
         print("=" * 80)
         
-        # Try reading with different delimiters
-        try:
-            df = pd.read_csv(self.csv_path, sep='\t')
-            if len(df.columns) < 5:
-                df = pd.read_csv(self.csv_path)
-        except:
-            df = pd.read_csv(self.csv_path)
+        # Read CSV with proper handling of malformed header
+        import csv
+        from io import StringIO
+        
+        with open(self.csv_path, 'r', encoding='utf-8-sig') as f:
+            reader = csv.reader(f)
+            header = next(reader)
+            data_rows = list(reader)
+        
+        # Fix split first column: merge columns 0-3 if they're split
+        # Check if first few columns look like: ['﻿"Proximal', '10ms', '0.2Hz', '9.4GPM"']
+        if (len(header) > 3 and 
+            'Proximal' in header[0] and 
+            'ms' in header[1] and 
+            'Hz' in header[2] and 
+            'GPM' in header[3]):
+            
+            # Merge first 4 columns into one properly formatted column
+            merged_col = f"{header[0].strip().strip('\"').strip()},{header[1]},{header[2]},{header[3].strip('\"')}"
+            fixed_header = [merged_col] + header[4:]
+            
+            # Merge data rows too
+            fixed_data = []
+            for row in data_rows:
+                if len(row) > 3:
+                    # Merge first 4 data values (they belong to same column)
+                    # Take the first non-empty value from these 4 columns
+                    merged_val = row[0] if row[0].strip() else (row[1] if len(row) > 1 and row[1].strip() else '')
+                    fixed_row = [merged_val] + row[4:]
+                    # Pad row if needed to match header length
+                    while len(fixed_row) < len(fixed_header):
+                        fixed_row.append('')
+                    fixed_data.append(fixed_row[:len(fixed_header)])
+                else:
+                    # Pad short rows
+                    padded_row = row + [''] * (len(fixed_header) - len(row))
+                    fixed_data.append(padded_row[:len(fixed_header)])
+            
+            # Create DataFrame from fixed data
+            df = pd.DataFrame(fixed_data, columns=fixed_header)
+            # Convert numeric columns to float
+            for col in df.columns:
+                try:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                except:
+                    pass
+        else:
+            # Normal CSV, just read it
+            df = pd.read_csv(self.csv_path, encoding='utf-8-sig')
             
         print(f"Loaded CSV: {df.shape[0]} rows × {df.shape[1]} columns")
         
         # Parse column headers
         self.metadata = []
         for col in df.columns:
-            col_clean = col.strip().strip('"').strip()
+            col_clean = col.strip().strip('"').strip('\ufeff').strip()
+            # Try standard format first
             match = re.search(r'(Proximal|Distal),(\d+)ms,([\d.]+)Hz,([\d.]+)GPM', col_clean)
             if match:
                 location, sample_rate, frequency, flow_rate = match.groups()
@@ -118,6 +161,19 @@ class SignalProcessingBaseline:
                     'flow_rate_gpm': float(flow_rate),
                     'data': df[col].values
                 })
+            else:
+                # Try alternative format with spaces or different separators
+                match2 = re.search(r'(Proximal|Distal)\s+(\d+)ms\s+([\d.]+)Hz\s+([\d.]+)GPM', col_clean)
+                if match2:
+                    location, sample_rate, frequency, flow_rate = match2.groups()
+                    self.metadata.append({
+                        'column': col,
+                        'location': location,
+                        'sample_rate_ms': int(sample_rate),
+                        'frequency_hz': float(frequency),
+                        'flow_rate_gpm': float(flow_rate),
+                        'data': df[col].values
+                    })
         
         print(f"Parsed {len(self.metadata)} columns with metadata")
         
