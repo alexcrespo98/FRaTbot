@@ -47,7 +47,8 @@ class DataLoader:
             df = pd.read_csv(self.csv_path, sep='\t')
             if len(df.columns) < 5:  # If too few columns, try comma
                 df = pd.read_csv(self.csv_path)
-        except:
+        except (pd.errors.EmptyDataError, UnicodeDecodeError, FileNotFoundError) as e:
+            print(f"Error reading CSV with tab delimiter: {e}")
             df = pd.read_csv(self.csv_path)
             
         print(f"Loaded CSV: {df.shape[0]} rows × {df.shape[1]} columns")
@@ -212,7 +213,7 @@ class FeatureExtractor:
             features[f'{name}_peak_phase'] = np.angle(fft[peak_idx])
         
         # Relative features
-        if features['prox_peak_amp'] > 0:
+        if abs(features['prox_peak_amp']) > 1e-10:
             features['amp_ratio'] = features['dist_peak_amp'] / features['prox_peak_amp']
         else:
             features['amp_ratio'] = 0
@@ -244,7 +245,7 @@ class FeatureExtractor:
             x = np.arange(len(diff))
             slope, intercept = np.polyfit(x, diff, 1)
             features['diff_slope'] = slope
-        except:
+        except (np.linalg.LinAlgError, ValueError):
             features['diff_slope'] = 0
         
         # Pearson correlation between signals
@@ -390,8 +391,9 @@ class MLExperiment:
         rmse = np.sqrt(mean_squared_error(self.y, y_pred))
         r2 = r2_score(self.y, y_pred)
         
-        # Percentage error
-        pct_errors = np.abs((self.y - y_pred) / self.y) * 100
+        # Percentage error (avoid division by zero)
+        epsilon = 1e-10
+        pct_errors = np.abs((self.y - y_pred) / (self.y + epsilon)) * 100
         mean_pct_error = np.mean(pct_errors)
         
         results = {
@@ -595,7 +597,7 @@ def print_summary(results):
     print()
     
     print("Key Insights:")
-    print("  - Limited data (~14 samples) challenges complex models")
+    print(f"  - Limited data ({len(results[0]['y_true'])} samples) challenges complex models")
     print("  - Feature engineering from FFT/thermal decay is critical")
     print("  - Cross-validation ensures robust performance estimates")
     print()
