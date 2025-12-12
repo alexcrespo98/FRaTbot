@@ -41,15 +41,24 @@ class DataLoader:
         print("LOADING DATA")
         print("=" * 80)
         
-        # Read CSV
-        df = pd.read_csv(self.csv_path)
+        # Try reading with different delimiters (comma or tab)
+        try:
+            # Try tab-delimited first
+            df = pd.read_csv(self.csv_path, sep='\t')
+            if len(df.columns) < 5:  # If too few columns, try comma
+                df = pd.read_csv(self.csv_path)
+        except:
+            df = pd.read_csv(self.csv_path)
+            
         print(f"Loaded CSV: {df.shape[0]} rows × {df.shape[1]} columns")
         
         # Parse column headers to extract metadata
         self.metadata = []
         for col in df.columns:
             # Parse: "Proximal,10ms,0.2Hz,9.4GPM" or similar
-            match = re.search(r'(Proximal|Distal),(\d+)ms,([\d.]+)Hz,([\d.]+)GPM', col)
+            # Handle both comma-separated in quotes and direct format
+            col_clean = col.strip().strip('"').strip()
+            match = re.search(r'(Proximal|Distal),(\d+)ms,([\d.]+)Hz,([\d.]+)GPM', col_clean)
             if match:
                 location, sample_rate, frequency, flow_rate = match.groups()
                 self.metadata.append({
@@ -68,11 +77,82 @@ class DataLoader:
         frequencies = sorted(set(m['frequency_hz'] for m in self.metadata))
         print(f"Flow rates: {flow_rates} GPM")
         print(f"Frequencies: {frequencies} Hz")
-        print(f"Sample rate: {self.metadata[0]['sample_rate_ms']}ms ({1000/self.metadata[0]['sample_rate_ms']:.0f} Hz)")
-        print(f"Samples per measurement: {len(self.metadata[0]['data'])}")
+        if self.metadata:
+            print(f"Sample rate: {self.metadata[0]['sample_rate_ms']}ms ({1000/self.metadata[0]['sample_rate_ms']:.0f} Hz)")
+            print(f"Samples per measurement: {len(self.metadata[0]['data'])}")
         print()
         
         return self.metadata
+
+
+class DataAugmentor:
+    """Augment training data using various strategies."""
+    
+    @staticmethod
+    def add_noise(data, noise_level=0.01):
+        """Add Gaussian noise to time series data."""
+        noise = np.random.normal(0, noise_level * np.std(data), len(data))
+        return data + noise
+    
+    @staticmethod
+    def time_shift(data, max_shift=50):
+        """Shift time series by random amount."""
+        shift = np.random.randint(-max_shift, max_shift)
+        return np.roll(data, shift)
+    
+    @staticmethod
+    def window_slice(data, window_size=2000):
+        """Extract random window from time series."""
+        if len(data) <= window_size:
+            return data
+        start = np.random.randint(0, len(data) - window_size)
+        return data[start:start + window_size]
+    
+    @staticmethod
+    def augment_sample(sample, n_augmentations=3):
+        """Create augmented versions of a sample."""
+        augmented = []
+        
+        for _ in range(n_augmentations):
+            # Choose random augmentation strategy
+            strategy = np.random.choice(['noise', 'shift', 'both'])
+            
+            prox = sample['proximal'].copy()
+            dist = sample['distal'].copy()
+            
+            if strategy == 'noise' or strategy == 'both':
+                prox = DataAugmentor.add_noise(prox, noise_level=0.005)
+                dist = DataAugmentor.add_noise(dist, noise_level=0.005)
+            
+            if strategy == 'shift' or strategy == 'both':
+                shift = np.random.randint(-20, 20)
+                prox = np.roll(prox, shift)
+                dist = np.roll(dist, shift)
+            
+            augmented.append({
+                'proximal': prox,
+                'distal': dist,
+                'flow_rate': sample['flow_rate'],
+                'frequency': sample['frequency']
+            })
+        
+        return augmented
+    
+    @staticmethod
+    def augment_dataset(samples, n_augmentations=3):
+        """Augment entire dataset."""
+        print(f"Augmenting dataset with {n_augmentations} variations per sample...")
+        augmented_samples = []
+        
+        # Keep original samples
+        augmented_samples.extend(samples)
+        
+        # Add augmented versions
+        for sample in samples:
+            augmented_samples.extend(DataAugmentor.augment_sample(sample, n_augmentations))
+        
+        print(f"Dataset expanded from {len(samples)} to {len(augmented_samples)} samples")
+        return augmented_samples
 
 
 class FeatureExtractor:
@@ -343,6 +423,7 @@ def run_all_experiments(X, y):
     }
     
     results = []
+    feature_importances = {}
     
     for name, model in models.items():
         print(f"Training {name}...")
@@ -350,27 +431,39 @@ def run_all_experiments(X, y):
         result = exp.evaluate_model(model, cv_strategy='loo')
         results.append(result)
         
+        # Get feature importance for tree-based models
+        if hasattr(model, 'feature_importances_'):
+            feature_importances[name] = {
+                'features': X.columns.tolist(),
+                'importances': model.feature_importances_
+            }
+        
         print(f"  MAE: {result['mae']:.3f} GPM")
         print(f"  RMSE: {result['rmse']:.3f} GPM")
         print(f"  R²: {result['r2']:.3f}")
         print(f"  Mean % Error: {result['mean_pct_error']:.2f}%")
         print()
     
-    return results
+    return results, feature_importances
 
 
-def create_visualizations(results):
+def create_visualizations(results, feature_importances=None):
     """Create comprehensive visualizations."""
     print("=" * 80)
     print("CREATING VISUALIZATIONS")
     print("=" * 80)
     print()
     
-    # Create figure with subplots
-    fig = plt.figure(figsize=(16, 12))
+    # Determine number of subplots based on whether we have feature importances
+    if feature_importances:
+        fig = plt.figure(figsize=(20, 12))
+        n_cols = 3
+    else:
+        fig = plt.figure(figsize=(16, 12))
+        n_cols = 2
     
     # 1. Comparison table
-    ax1 = plt.subplot(3, 2, 1)
+    ax1 = plt.subplot(3, n_cols, 1)
     ax1.axis('tight')
     ax1.axis('off')
     
@@ -395,7 +488,7 @@ def create_visualizations(results):
     
     # 2. Predicted vs Actual for best model
     best_result = min(results, key=lambda x: x['mae'])
-    ax2 = plt.subplot(3, 2, 2)
+    ax2 = plt.subplot(3, n_cols, 2)
     ax2.scatter(best_result['y_true'], best_result['y_pred'], alpha=0.6, s=100)
     ax2.plot([best_result['y_true'].min(), best_result['y_true'].max()],
             [best_result['y_true'].min(), best_result['y_true'].max()],
@@ -406,44 +499,58 @@ def create_visualizations(results):
     ax2.legend()
     ax2.grid(True, alpha=0.3)
     
-    # 3. MAE comparison
-    ax3 = plt.subplot(3, 2, 3)
+    # 3. Feature importance (if available)
+    if feature_importances:
+        ax3 = plt.subplot(3, n_cols, 3)
+        # Show feature importance for Random Forest
+        if 'Random Forest' in feature_importances:
+            fi = feature_importances['Random Forest']
+            # Get top 15 features
+            indices = np.argsort(fi['importances'])[-15:]
+            ax3.barh([fi['features'][i] for i in indices], 
+                    [fi['importances'][i] for i in indices])
+            ax3.set_xlabel('Feature Importance', fontsize=10)
+            ax3.set_title('Top 15 Features (Random Forest)', fontsize=12, fontweight='bold')
+            ax3.grid(True, alpha=0.3, axis='x')
+    
+    # 4. MAE comparison
+    ax4 = plt.subplot(3, n_cols, n_cols + 1)
     models = [r['model'] for r in results]
     maes = [r['mae'] for r in results]
     colors = ['green' if mae == min(maes) else 'skyblue' for mae in maes]
-    ax3.barh(models, maes, color=colors)
-    ax3.set_xlabel('MAE (GPM)', fontsize=10)
-    ax3.set_title('Mean Absolute Error Comparison', fontsize=12, fontweight='bold')
-    ax3.grid(True, alpha=0.3, axis='x')
-    
-    # 4. R² comparison
-    ax4 = plt.subplot(3, 2, 4)
-    r2s = [r['r2'] for r in results]
-    colors = ['green' if r2 == max(r2s) else 'lightcoral' for r2 in r2s]
-    ax4.barh(models, r2s, color=colors)
-    ax4.set_xlabel('R² Score', fontsize=10)
-    ax4.set_title('R² Score Comparison', fontsize=12, fontweight='bold')
+    ax4.barh(models, maes, color=colors)
+    ax4.set_xlabel('MAE (GPM)', fontsize=10)
+    ax4.set_title('Mean Absolute Error Comparison', fontsize=12, fontweight='bold')
     ax4.grid(True, alpha=0.3, axis='x')
     
-    # 5. Error distribution for best model
-    ax5 = plt.subplot(3, 2, 5)
-    errors = best_result['y_pred'] - best_result['y_true']
-    ax5.hist(errors, bins=10, edgecolor='black', alpha=0.7)
-    ax5.axvline(0, color='red', linestyle='--', linewidth=2, label='Zero Error')
-    ax5.set_xlabel('Prediction Error (GPM)', fontsize=10)
-    ax5.set_ylabel('Frequency', fontsize=10)
-    ax5.set_title(f'Error Distribution - {best_result["model"]}', fontsize=12, fontweight='bold')
-    ax5.legend()
-    ax5.grid(True, alpha=0.3)
+    # 5. R² comparison
+    ax5 = plt.subplot(3, n_cols, n_cols + 2)
+    r2s = [r['r2'] for r in results]
+    colors = ['green' if r2 == max(r2s) else 'lightcoral' for r2 in r2s]
+    ax5.barh(models, r2s, color=colors)
+    ax5.set_xlabel('R² Score', fontsize=10)
+    ax5.set_title('R² Score Comparison', fontsize=12, fontweight='bold')
+    ax5.grid(True, alpha=0.3, axis='x')
     
-    # 6. Percentage error comparison
-    ax6 = plt.subplot(3, 2, 6)
+    # 6. Error distribution for best model
+    ax6 = plt.subplot(3, n_cols, 2 * n_cols + 1)
+    errors = best_result['y_pred'] - best_result['y_true']
+    ax6.hist(errors, bins=10, edgecolor='black', alpha=0.7)
+    ax6.axvline(0, color='red', linestyle='--', linewidth=2, label='Zero Error')
+    ax6.set_xlabel('Prediction Error (GPM)', fontsize=10)
+    ax6.set_ylabel('Frequency', fontsize=10)
+    ax6.set_title(f'Error Distribution - {best_result["model"]}', fontsize=12, fontweight='bold')
+    ax6.legend()
+    ax6.grid(True, alpha=0.3)
+    
+    # 7. Percentage error comparison
+    ax7 = plt.subplot(3, n_cols, 2 * n_cols + 2)
     pct_errors = [r['mean_pct_error'] for r in results]
     colors = ['green' if pct == min(pct_errors) else 'orange' for pct in pct_errors]
-    ax6.barh(models, pct_errors, color=colors)
-    ax6.set_xlabel('Mean Percentage Error (%)', fontsize=10)
-    ax6.set_title('Percentage Error Comparison', fontsize=12, fontweight='bold')
-    ax6.grid(True, alpha=0.3, axis='x')
+    ax7.barh(models, pct_errors, color=colors)
+    ax7.set_xlabel('Mean Percentage Error (%)', fontsize=10)
+    ax7.set_title('Percentage Error Comparison', fontsize=12, fontweight='bold')
+    ax7.grid(True, alpha=0.3, axis='x')
     
     plt.tight_layout()
     plt.savefig('ml_flow_prediction_results.png', dpi=150, bbox_inches='tight')
@@ -494,14 +601,25 @@ def print_summary(results):
     print()
 
 
-def main():
-    """Main execution function."""
+def main(use_augmentation=False, n_augmentations=3):
+    """Main execution function.
+    
+    Args:
+        use_augmentation: Whether to use data augmentation
+        n_augmentations: Number of augmented samples to create per original sample
+    """
     print("\n")
     print("╔" + "=" * 78 + "╗")
     print("║" + " " * 20 + "ML FLOW PREDICTION FRAMEWORK" + " " * 30 + "║")
     print("║" + " " * 15 + "Predicting Water Flow Rate from Thermistor Data" + " " * 15 + "║")
     print("╚" + "=" * 78 + "╝")
     print("\n")
+    
+    if use_augmentation:
+        print(f"⚙ Data augmentation ENABLED ({n_augmentations} augmentations per sample)")
+    else:
+        print("⚙ Data augmentation DISABLED")
+    print()
     
     # 1. Load data (try FRaTbot_flowdata_2.csv first, fall back to FRaTbot_flowdata.csv)
     csv_file = 'FRaTbot_flowdata_2.csv' if os.path.exists('FRaTbot_flowdata_2.csv') else 'FRaTbot_flowdata.csv'
@@ -512,6 +630,10 @@ def main():
     builder = DatasetBuilder(metadata)
     samples = builder.build_paired_dataset(target_frequency=None)  # Use all frequencies
     
+    # 2b. Optionally augment dataset
+    if use_augmentation:
+        samples = DataAugmentor.augment_dataset(samples, n_augmentations=n_augmentations)
+    
     # 3. Extract features
     X, y = builder.extract_features_from_samples(samples)
     
@@ -520,12 +642,26 @@ def main():
     print()
     
     # 4. Run experiments
-    results = run_all_experiments(X, y)
+    results, feature_importances = run_all_experiments(X, y)
     
     # 5. Create visualizations
-    best_result = create_visualizations(results)
+    best_result = create_visualizations(results, feature_importances)
     
-    # 6. Print summary
+    # 6. Print feature importance insights
+    if feature_importances:
+        print("=" * 80)
+        print("FEATURE IMPORTANCE ANALYSIS")
+        print("=" * 80)
+        print()
+        
+        for model_name, fi in feature_importances.items():
+            print(f"{model_name}:")
+            indices = np.argsort(fi['importances'])[-10:][::-1]
+            for i, idx in enumerate(indices, 1):
+                print(f"  {i}. {fi['features'][idx]}: {fi['importances'][idx]:.4f}")
+            print()
+    
+    # 7. Print summary
     print_summary(results)
     
     print("=" * 80)
@@ -534,11 +670,16 @@ def main():
     print()
     print("Next steps:")
     print("  1. Review results in 'ml_flow_prediction_results.png'")
-    print("  2. Consider implementing data augmentation if more accuracy is needed")
+    if not use_augmentation:
+        print("  2. Try running with data augmentation: python ml_flow_prediction.py --augment")
     print("  3. Experiment with deep learning models (CNN/LSTM) for raw time series")
     print("  4. Compare with FFT-based signal processing baseline")
     print()
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    
+    # Check if augmentation flag is passed
+    use_aug = '--augment' in sys.argv or '-a' in sys.argv
+    main(use_augmentation=use_aug, n_augmentations=3)
