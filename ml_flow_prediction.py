@@ -31,6 +31,9 @@ class DataLoader:
     """Load and parse the FRaTbot flow data CSV."""
     
     def __init__(self, csv_path='FRaTbot_flowdata_2.csv'):
+        # Auto-select file if it exists
+        if not os.path.exists(csv_path) and os.path.exists('FRaTbot_flowdata.csv'):
+            csv_path = 'FRaTbot_flowdata.csv'
         self.csv_path = csv_path
         self.raw_data = None
         self.metadata = []
@@ -52,8 +55,10 @@ class DataLoader:
         
         # Fix split first column: merge columns 0-3 if they're split
         # Check if first few columns look like: ['﻿"Proximal', '10ms', '0.2Hz', '9.4GPM"']
+        # The key is that column 0 should NOT contain commas if it's properly formatted
         if (len(header) > 3 and 
             'Proximal' in header[0] and 
+            ',' not in header[0] and  # Properly formatted columns have commas
             'ms' in header[1] and 
             'Hz' in header[2] and 
             'GPM' in header[3]):
