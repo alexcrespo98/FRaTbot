@@ -28,20 +28,42 @@ jupyter labextension install @jupyter-widgets/jupyterlab-manager
 
 ## Usage in Jupyter Notebook
 
-### Step 1: Import and Setup
+### Option 1: Self-Contained Cell (Recommended - No Import Issues!)
+
+**Best for:** Avoiding `ModuleNotFoundError` and ensuring everything works immediately.
+
+1. Open the file `flow_analysis_jupyter_notebook.py`
+2. Copy **ALL** the contents
+3. Paste into a single Jupyter notebook cell
+4. Run the cell
+
+That's it! Everything will display in one output including:
+- Experimental data summary
+- Correlation analysis
+- Physical parameters
+- Theoretical vs experimental comparison
+- All 6 interactive plots with controls
+
+**Advantages:**
+- ✓ No import errors
+- ✓ Works regardless of working directory
+- ✓ Single cell execution
+- ✓ Complete analytics output automatically displayed
+
+### Option 2: Import Method
+
+**Note:** Only use this if the script file is in your working directory or Python path.
 
 ```python
-# In your Jupyter notebook cell:
+# Step 1: Import and setup
 %matplotlib inline
 from flow_analysis_jupyter import create_interactive_analysis
-```
 
-### Step 2: Create Interactive Analysis
-
-```python
-# This will create interactive controls and plots
+# Step 2: Create interactive analysis
 create_interactive_analysis()
 ```
+
+**Troubleshooting:** If you get `ModuleNotFoundError: No module named 'flow_analysis_jupyter'`, use Option 1 instead.
 
 ## Features
 
