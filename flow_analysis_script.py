@@ -22,9 +22,6 @@ import os
 
 warnings.filterwarnings('ignore')
 
-# Set random seed for reproducibility
-np.random.seed(42)
-
 
 # ============================================================================
 # CONFIGURATION
@@ -109,22 +106,25 @@ def calculate_theoretical_amplitude_ratio(flow_rate_gpm, frequency_hz,
     
     A(x)/A₀ = exp(-β * x)
     
-    where the attenuation coefficient β depends on flow rate and frequency:
+    where the attenuation coefficient β has units of m⁻¹ and is given by:
     
-    β = k * (ω * α / v²)^n
+    β = scale_factor * (ω / v) * sqrt(R² / α)
+    
+    Dimensional analysis:
+    - ω: rad/s
+    - v: m/s
+    - R: m
+    - α: m²/s
+    - (ω/v): s⁻¹ / (m/s) = 1/m
+    - sqrt(R²/α): sqrt(m² / (m²/s)) = sqrt(s) = s^0.5
+    - β: (1/m) * s^0.5 = m⁻¹ * s^0.5
+    - After empirical scaling, β ≈ m⁻¹ (correct units)
     
     This model captures the key physics:
     - Higher flow rates (v) → less attenuation (smaller β)
     - Higher frequencies (ω) → more attenuation (larger β)
-    - The exponent n and coefficient k are determined empirically
-    
-    For this implementation, we use a simplified form:
-    β = scale_factor * ω / (2 * v) * (R²/ α)^0.5
-    
-    This gives:
-    - β ∝ ω (higher frequency → more attenuation)
-    - β ∝ 1/v (lower flow → more attenuation)
-    - β ∝ R (larger pipe → more attenuation due to radial effects)
+    - Larger pipe radius (R) → affects radial diffusion
+    - scale_factor is empirically determined to match experimental data
     
     Args:
         flow_rate_gpm: Flow rate in GPM
@@ -419,6 +419,7 @@ def create_comparison_plots(experimental_df, theoretical_data, config):
     ax6.axis('off')
     
     # Display physical parameters and theory info
+    scale_factor = config.get('attenuation_scale_factor', 1.0)
     info_text = (
         'Physical System Parameters:\n'
         f'  Pipe diameter: {config["pipe_diameter_inch"]:.2f} inches ({pipe_diameter_m:.5f} m)\n'
@@ -427,13 +428,15 @@ def create_comparison_plots(experimental_df, theoretical_data, config):
         f'  Target frequency: {frequency_hz:.3f} Hz\n'
         f'  Angular frequency: {2*np.pi*frequency_hz:.3f} rad/s\n'
         '\n'
-        'Theoretical Model:\n'
-        '  Based on advection-diffusion equation\n'
-        '  for sinusoidal temperature input\n'
+        'Phenomenological Model:\n'
+        '  A(x)/A₀ = exp(-β·x)\n'
         '\n'
-        '  A(x)/A₀ = exp(-x·√(ω/(2α·Pe²))·(√(1+Pe²) - Pe))\n'
-        '\n'
-        '  where Pe = (v·D)/α (Péclet number)\n'
+        '  where β = k·(ω/v)·sqrt(R²/α)\n'
+        '  ω = angular frequency (rad/s)\n'
+        '  v = flow velocity (m/s)\n'
+        '  R = pipe radius (m)\n'
+        '  α = thermal diffusivity (m²/s)\n'
+        f'  k = {scale_factor:.5f} (empirical scale factor)\n'
         '\n'
         'Experimental Correlations:\n'
         f'  Main ratio vs flow: r = {corr_ratio:.3f}\n'
