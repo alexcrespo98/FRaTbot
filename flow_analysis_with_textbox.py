@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 Flow Analysis Script with Theoretical Temperature Amplitude Decay Predictions
-and Interactive Text Box Input
+and Interactive Text Box Input with Data Filtering
 
 This script processes preprocessed FFT results and overlays theoretical predictions
-with an adjustable offset parameter via text box input.
+with an adjustable offset parameter via text box input and checkboxes for data filtering.
 
 Physical System:
 - Pipe diameter: 0.75 inches (0.01905 m)
@@ -17,7 +17,7 @@ Physical System:
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.widgets import TextBox
+from matplotlib.widgets import TextBox, CheckButtons
 import warnings
 import os
 
@@ -185,12 +185,16 @@ def load_preprocessed_data(config):
 # ============================================================================
 
 class InteractiveFlowAnalysisWithTextBox:
-    """Interactive visualization with text box for adjustment parameter."""
+    """Interactive visualization with text box for adjustment parameter and checkboxes for data filtering."""
     
     def __init__(self, experimental_df, config):
-        self.experimental_df = experimental_df.sort_values('flow_rate')
+        self.experimental_df = experimental_df.sort_values('flow_rate').reset_index(drop=True)
         self.config = config
         self.current_adjustment = config['default_adjustment']
+        self.n_pairs = len(self.experimental_df)
+        
+        # Initialize included pairs (all True initially - include all by default)
+        self.included_pairs = [True] * self.n_pairs
         
         # Physical parameters
         self.pipe_diameter_m = config['pipe_diameter_inch'] * 0.0254
@@ -198,15 +202,14 @@ class InteractiveFlowAnalysisWithTextBox:
         self.alpha = config['water_thermal_diffusivity_m2s']
         self.frequency_hz = config['target_frequency_hz']
         self.scale_factor = config['attenuation_scale_factor']
-        self.mean_prox_amp = self.experimental_df['prox_amp_C'].mean()
         
         self.setup_figure()
     
     def setup_figure(self):
-        """Setup figure with 6 plots and text box at top."""
-        self.fig = plt.figure(figsize=(16, 12))
+        """Setup figure with 6 plots, text box at top, and checkboxes on left."""
+        self.fig = plt.figure(figsize=(18, 12))
         
-        # Add text box at the very top
+        # Add text box at the very top (editable)
         textbox_ax = self.fig.add_axes([0.35, 0.96, 0.15, 0.025])
         self.textbox = TextBox(textbox_ax, 'Adjustment: ', 
                                initial=str(self.current_adjustment),
@@ -214,23 +217,40 @@ class InteractiveFlowAnalysisWithTextBox:
         self.textbox.on_submit(self.update_adjustment)
         
         # Add instruction text
-        instruction_ax = self.fig.add_axes([0.52, 0.96, 0.3, 0.025])
+        instruction_ax = self.fig.add_axes([0.52, 0.96, 0.35, 0.025])
         instruction_ax.axis('off')
-        instruction_ax.text(0, 0.5, '← Enter value and press Enter to update plots',
+        instruction_ax.text(0, 0.5, '← Click in box, edit value, press Enter to update',
                           fontsize=10, verticalalignment='center')
         
-        # Create 6 subplots (original layout)
-        self.ax1 = plt.subplot(2, 3, 1)
-        self.ax2 = plt.subplot(2, 3, 2)
-        self.ax3 = plt.subplot(2, 3, 3)
-        self.ax4 = plt.subplot(2, 3, 4)
-        self.ax5 = plt.subplot(2, 3, 5)
-        self.ax6 = plt.subplot(2, 3, 6)
+        # Create checkboxes for data point selection (left side)
+        checkbox_ax = self.fig.add_axes([0.02, 0.25, 0.08, 0.5])
+        
+        # Create labels for checkboxes
+        labels = []
+        for i, row in self.experimental_df.iterrows():
+            labels.append(f"{row['flow_rate']:.1f} GPM")
+        
+        self.checkboxes = CheckButtons(checkbox_ax, labels, self.included_pairs)
+        self.checkboxes.on_clicked(self.toggle_pair)
+        
+        # Add title for checkboxes
+        checkbox_title_ax = self.fig.add_axes([0.02, 0.76, 0.08, 0.03])
+        checkbox_title_ax.axis('off')
+        checkbox_title_ax.text(0.5, 0.5, 'Include Data:', fontsize=10, 
+                              fontweight='bold', ha='center', va='center')
+        
+        # Create 6 subplots (adjusted for checkbox space)
+        self.ax1 = plt.subplot2grid((2, 3), (0, 0), fig=self.fig)
+        self.ax2 = plt.subplot2grid((2, 3), (0, 1), fig=self.fig)
+        self.ax3 = plt.subplot2grid((2, 3), (0, 2), fig=self.fig)
+        self.ax4 = plt.subplot2grid((2, 3), (1, 0), fig=self.fig)
+        self.ax5 = plt.subplot2grid((2, 3), (1, 1), fig=self.fig)
+        self.ax6 = plt.subplot2grid((2, 3), (1, 2), fig=self.fig)
         
         # Initial plot
         self.update_plots()
         
-        plt.suptitle('Flow Analysis: Experimental vs Theoretical (Adjustable)',
+        plt.suptitle('Flow Analysis: Experimental vs Theoretical (Adjustable with Data Filtering)',
                      fontsize=14, fontweight='bold', y=0.94)
     
     def update_adjustment(self, text):
@@ -241,6 +261,17 @@ class InteractiveFlowAnalysisWithTextBox:
         except ValueError:
             print(f"Invalid input: '{text}'. Please enter a number.")
             self.textbox.set_val(str(self.current_adjustment))
+    
+    def toggle_pair(self, label):
+        """Toggle inclusion of a specific flow rate pair."""
+        # Find which checkbox was clicked
+        for i, row in self.experimental_df.iterrows():
+            if f"{row['flow_rate']:.1f} GPM" == label:
+                self.included_pairs[i] = not self.included_pairs[i]
+                break
+        
+        # Update plots
+        self.update_plots()
     
     def generate_theoretical_curves(self):
         """Generate theoretical predictions with current adjustment."""
@@ -268,13 +299,25 @@ class InteractiveFlowAnalysisWithTextBox:
         return flow_rates, np.array(ratios), np.array(diffs)
     
     def update_plots(self):
-        """Update all 6 plots with current adjustment."""
-        exp_sorted = self.experimental_df
+        """Update all 6 plots with current adjustment and filtered data."""
+        # Get included data only
+        included_mask = np.array(self.included_pairs)
+        exp_included = self.experimental_df[included_mask]
+        
+        # Update mean proximal amplitude based on included data
+        if len(exp_included) > 0:
+            self.mean_prox_amp = exp_included['prox_amp_C'].mean()
+        else:
+            self.mean_prox_amp = self.experimental_df['prox_amp_C'].mean()
+        
         theo_flow, theo_ratio, theo_diff = self.generate_theoretical_curves()
         
         # Clear all axes
         for ax in [self.ax1, self.ax2, self.ax3, self.ax4, self.ax5, self.ax6]:
             ax.clear()
+        
+        # Use included data for plotting, or all data if none selected
+        exp_sorted = exp_included if len(exp_included) > 0 else self.experimental_df
         
         # Plot 1: Main Amplitude Difference vs Flow Rate
         self.ax1.plot(exp_sorted['flow_rate'], exp_sorted['amp_diff_C'], 
@@ -351,6 +394,14 @@ class InteractiveFlowAnalysisWithTextBox:
         
         # Plot 6: Physical Parameters
         self.ax6.axis('off')
+        
+        # Calculate correlation only if we have at least 2 points
+        n_included = len(exp_sorted)
+        if n_included >= 2:
+            corr_info = f'Ratio vs flow: r = {corr_ratio:.3f}\nDiff vs flow: r = {corr_diff:.3f}'
+        else:
+            corr_info = 'Need ≥2 points for correlation'
+        
         info_text = (
             f'PHYSICAL PARAMETERS\n'
             f'───────────────────────\n'
@@ -360,9 +411,10 @@ class InteractiveFlowAnalysisWithTextBox:
             f'Frequency: {self.frequency_hz:.3f} Hz\n'
             f'Scale factor: {self.scale_factor:.5f}\n'
             f'\n'
-            f'CURRENT ADJUSTMENT\n'
+            f'CURRENT SETTINGS\n'
             f'───────────────────────\n'
-            f'Offset: {self.current_adjustment:.6f}\n'
+            f'Adjustment offset: {self.current_adjustment:.6f}\n'
+            f'Data points shown: {n_included}/{self.n_pairs}\n'
             f'\n'
             f'THEORETICAL MODEL\n'
             f'───────────────────────\n'
@@ -372,12 +424,14 @@ class InteractiveFlowAnalysisWithTextBox:
             f'\n'
             f'CORRELATIONS\n'
             f'───────────────────────\n'
-            f'Ratio vs flow: r = {corr_ratio:.3f}\n'
-            f'Diff vs flow: r = {corr_diff:.3f}\n'
+            f'{corr_info}\n'
             f'\n'
-            f'Enter adjustment value in\n'
-            f'text box above to shift\n'
-            f'theoretical curves.'
+            f'CONTROLS\n'
+            f'───────────────────────\n'
+            f'• Click in text box to edit\n'
+            f'• Press Enter to update\n'
+            f'• Uncheck boxes to exclude\n'
+            f'  data points'
         )
         
         self.ax6.text(0.05, 0.95, info_text,
