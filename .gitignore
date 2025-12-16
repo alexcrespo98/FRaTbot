@@ -52,3 +52,7 @@ Thumbs.db
 
 # Preprocessed FFT results (generated files)
 fft_results_preprocessed/
+
+# Interactive demo images (generated for documentation)
+*_demo.png
+*_demo_filtered.png
