@@ -56,3 +56,4 @@ fft_results_preprocessed/
 # Interactive demo images (generated for documentation)
 *_demo.png
 *_demo_filtered.png
+*_demo_adjusted.png
