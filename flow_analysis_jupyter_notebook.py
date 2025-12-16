@@ -28,6 +28,7 @@ from matplotlib.gridspec import GridSpec
 import ipywidgets as widgets
 from IPython.display import display, HTML
 import warnings
+import os
 
 warnings.filterwarnings('ignore')
 
@@ -87,8 +88,6 @@ def find_column_case_insensitive(df, target_col, alternatives):
 
 def load_preprocessed_data(config):
     """Load data from CSV or use embedded fallback."""
-    import os
-    
     # Try preprocessed CSV first
     if os.path.exists(config['preprocessed_csv']):
         try:
@@ -162,8 +161,9 @@ def calculate_theoretical_amplitude_ratio(flow_rate_gpm, frequency_hz, distance_
     # Attenuation coefficient
     beta = scale_factor * (omega / velocity_ms) * np.sqrt(radius_m**2 / thermal_diffusivity_m2s)
     
-    # Amplitude ratio with adjustment offset
+    # Amplitude ratio with adjustment offset, clipped to realistic bounds
     ratio = np.exp(-distance_m * beta) + adjustment
+    ratio = np.clip(ratio, 0.0, 1.0)
     return ratio
 
 def calculate_theoretical_amplitude_difference(flow_rate_gpm, prox_amp_C, frequency_hz, 
@@ -307,7 +307,7 @@ def create_plots(experimental_df, config, adjustment=0.0, included_indices=None)
     ax6.axis('off')
     
     info_text = f"""PHYSICAL PARAMETERS
-━━━━━━━━━━━━━━━━━━━━
+====================
 Pipe: {config['pipe_diameter_inch']}" ({pipe_diameter_m:.5f} m)
 Distance: {config['sensor_distance_ft']} ft ({distance_m:.2f} m)
 Thermal diffusivity: {config['water_thermal_diffusivity_m2s']:.2e} m²/s
@@ -315,23 +315,23 @@ Frequency: {config['target_frequency_hz']} Hz
 Scale factor: {config['attenuation_scale_factor']}
 
 CURRENT SETTINGS
-━━━━━━━━━━━━━━━━━━━━
+====================
 Adjustment offset: {adjustment:.6f}
 Data points shown: {len(exp_filtered)}/{len(experimental_df)}
 
 THEORETICAL MODEL
-━━━━━━━━━━━━━━━━━━━━
+====================
 A(x)/A₀ = exp(-β·x) + offset
 
 where β = k·(ω/v)·√(R²/α)
 
 CORRELATIONS
-━━━━━━━━━━━━━━━━━━━━
+====================
 Ratio vs flow: r = {corr_ratio:.3f}
 Diff vs flow: r = {corr_diff:.3f}
 
 CONTROLS
-━━━━━━━━━━━━━━━━━━━━
+====================
 • Enter adjustment value in text box
 • Uncheck boxes to exclude data points
 """
