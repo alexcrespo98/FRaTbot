@@ -23,14 +23,15 @@ import matplotlib.pyplot as plt
 import warnings
 import os
 
-# Import ipywidgets for Jupyter compatibility
+# Import ipywidgets and IPython for Jupyter compatibility
 try:
     from ipywidgets import FloatText, Checkbox, VBox, HBox, Label, Output, interact, interactive
     import ipywidgets as widgets
+    from IPython.display import display
     JUPYTER_AVAILABLE = True
 except ImportError:
     JUPYTER_AVAILABLE = False
-    print("Warning: ipywidgets not available. Install with: pip install ipywidgets")
+    print("Warning: ipywidgets/IPython not available. Install with: pip install ipywidgets ipython")
 
 warnings.filterwarnings('ignore')
 
