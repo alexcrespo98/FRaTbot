@@ -218,6 +218,8 @@ def load_preprocessed_data(config):
     - pair_id, prox_col, dist_col, flow_rate, desired_freq_hz, etc.
     - Main attenuation metrics: prox_amp_C, dist_amp_C, amp_diff_C, amp_ratio_dist_over_prox
     - Weighted metrics: weighted_multi_peak_diff_C, weighted_multi_peak_ratio
+    
+    The function handles different column name formats and provides helpful error messages.
     """
     csv_path = config['preprocessed_csv']
     
@@ -225,11 +227,66 @@ def load_preprocessed_data(config):
     if os.path.exists(csv_path):
         print(f"Loading preprocessed data: {csv_path}")
         df = pd.read_csv(csv_path)
-        print(f"  Loaded {len(df)} pairs")
-        return df
+        print(f"  Loaded {len(df)} rows, {len(df.columns)} columns")
+        
+        # Define required columns and their possible alternative names
+        required_columns = {
+            'flow_rate': ['flow_rate', 'flow_rate_gpm', 'flow_gpm', 'gpm'],
+            'prox_amp_C': ['prox_amp_C', 'prox_amp', 'proximal_amp', 'amp_prox'],
+            'dist_amp_C': ['dist_amp_C', 'dist_amp', 'distal_amp', 'amp_dist'],
+            'amp_diff_C': ['amp_diff_C', 'amp_diff', 'amplitude_diff', 'diff'],
+            'amp_ratio_dist_over_prox': ['amp_ratio_dist_over_prox', 'amp_ratio', 'ratio', 'amplitude_ratio'],
+        }
+        
+        # Optional columns with alternatives
+        optional_columns = {
+            'weighted_multi_peak_diff_C': ['weighted_multi_peak_diff_C', 'weighted_diff', 'multi_peak_diff'],
+            'weighted_multi_peak_ratio': ['weighted_multi_peak_ratio', 'weighted_ratio', 'multi_peak_ratio'],
+            'desired_freq_hz': ['desired_freq_hz', 'frequency_hz', 'freq_hz', 'frequency'],
+        }
+        
+        # Map columns to standard names
+        column_mapping = {}
+        for std_name, alternatives in required_columns.items():
+            found = False
+            for alt_name in alternatives:
+                if alt_name in df.columns:
+                    column_mapping[alt_name] = std_name
+                    found = True
+                    break
+            if not found:
+                # Check case-insensitive
+                for col in df.columns:
+                    if col.lower() in [a.lower() for a in alternatives]:
+                        column_mapping[col] = std_name
+                        found = True
+                        break
+            
+            if not found:
+                print(f"\n  ERROR: Required column '{std_name}' not found.")
+                print(f"  Expected one of: {alternatives}")
+                print(f"  Available columns: {list(df.columns)}")
+                print(f"\n  Falling back to embedded experimental data...")
+                # Fall through to create default data
+                break
+        else:
+            # All required columns found, rename them
+            df = df.rename(columns=column_mapping)
+            
+            # Handle optional columns
+            for std_name, alternatives in optional_columns.items():
+                for alt_name in alternatives:
+                    if alt_name in df.columns:
+                        column_mapping[alt_name] = std_name
+                        df = df.rename(columns={alt_name: std_name})
+                        break
+            
+            print(f"  Successfully mapped columns")
+            return df
     
-    # If preprocessed doesn't exist, create mock data from user's provided results
-    print(f"Preprocessed file not found: {csv_path}")
+    # If preprocessed doesn't exist or has wrong format, create mock data from user's provided results
+    if not os.path.exists(csv_path):
+        print(f"Preprocessed file not found: {csv_path}")
     print("Creating dataset from provided experimental results...")
     
     data = {

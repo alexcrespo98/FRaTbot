@@ -49,3 +49,6 @@ Thumbs.db
 # Temporary files
 /tmp/
 *.tmp
+
+# Preprocessed FFT results (generated files)
+fft_results_preprocessed/
