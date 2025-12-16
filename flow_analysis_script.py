@@ -247,17 +247,25 @@ def load_preprocessed_data(config):
         
         # Map columns to standard names
         column_mapping = {}
+        
+        # Pre-compute lowercased alternatives for case-insensitive matching
+        alternatives_lower = {}
+        for std_name, alternatives in required_columns.items():
+            alternatives_lower[std_name] = [a.lower() for a in alternatives]
+        
         for std_name, alternatives in required_columns.items():
             found = False
+            # Try exact match first
             for alt_name in alternatives:
                 if alt_name in df.columns:
                     column_mapping[alt_name] = std_name
                     found = True
                     break
+            
             if not found:
                 # Check case-insensitive
                 for col in df.columns:
-                    if col.lower() in [a.lower() for a in alternatives]:
+                    if col.lower() in alternatives_lower[std_name]:
                         column_mapping[col] = std_name
                         found = True
                         break
@@ -273,11 +281,10 @@ def load_preprocessed_data(config):
             # All required columns found, rename them
             df = df.rename(columns=column_mapping)
             
-            # Handle optional columns
+            # Handle optional columns (use same consistent approach)
             for std_name, alternatives in optional_columns.items():
                 for alt_name in alternatives:
                     if alt_name in df.columns:
-                        column_mapping[alt_name] = std_name
                         df = df.rename(columns={alt_name: std_name})
                         break
             
