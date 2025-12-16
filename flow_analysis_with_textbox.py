@@ -332,10 +332,12 @@ class InteractiveFlowAnalysisWithTextBox:
         self.ax1.grid(True, alpha=0.3)
         self.ax1.legend(fontsize=10)
         
-        corr_diff = np.corrcoef(exp_sorted['flow_rate'], exp_sorted['amp_diff_C'])[0, 1]
-        self.ax1.text(0.05, 0.95, f'r = {corr_diff:.3f}',
-                transform=self.ax1.transAxes, fontsize=10, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+        # Add correlation only if we have enough data points
+        if len(exp_sorted) >= 2:
+            corr_diff = np.corrcoef(exp_sorted['flow_rate'], exp_sorted['amp_diff_C'])[0, 1]
+            self.ax1.text(0.05, 0.95, f'r = {corr_diff:.3f}',
+                    transform=self.ax1.transAxes, fontsize=10, verticalalignment='top',
+                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
         
         # Plot 2: Main Amplitude Ratio vs Flow Rate
         self.ax2.plot(exp_sorted['flow_rate'], exp_sorted['amp_ratio_dist_over_prox'],
@@ -350,10 +352,12 @@ class InteractiveFlowAnalysisWithTextBox:
         self.ax2.grid(True, alpha=0.3)
         self.ax2.legend(fontsize=10)
         
-        corr_ratio = np.corrcoef(exp_sorted['flow_rate'], exp_sorted['amp_ratio_dist_over_prox'])[0, 1]
-        self.ax2.text(0.05, 0.95, f'r = {corr_ratio:.3f}',
-                transform=self.ax2.transAxes, fontsize=10, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+        # Add correlation only if we have enough data points
+        if len(exp_sorted) >= 2:
+            corr_ratio = np.corrcoef(exp_sorted['flow_rate'], exp_sorted['amp_ratio_dist_over_prox'])[0, 1]
+            self.ax2.text(0.05, 0.95, f'r = {corr_ratio:.3f}',
+                    transform=self.ax2.transAxes, fontsize=10, verticalalignment='top',
+                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
         
         # Plot 3: Weighted Multi-Peak Difference
         self.ax3.plot(exp_sorted['flow_rate'], exp_sorted['weighted_multi_peak_diff_C'],
@@ -395,10 +399,12 @@ class InteractiveFlowAnalysisWithTextBox:
         # Plot 6: Physical Parameters
         self.ax6.axis('off')
         
-        # Calculate correlation only if we have at least 2 points
+        # Calculate correlation info only if we have at least 2 points
         n_included = len(exp_sorted)
         if n_included >= 2:
-            corr_info = f'Ratio vs flow: r = {corr_ratio:.3f}\nDiff vs flow: r = {corr_diff:.3f}'
+            corr_ratio_val = np.corrcoef(exp_sorted['flow_rate'], exp_sorted['amp_ratio_dist_over_prox'])[0, 1]
+            corr_diff_val = np.corrcoef(exp_sorted['flow_rate'], exp_sorted['amp_diff_C'])[0, 1]
+            corr_info = f'Ratio vs flow: r = {corr_ratio_val:.3f}\nDiff vs flow: r = {corr_diff_val:.3f}'
         else:
             corr_info = 'Need ≥2 points for correlation'
         
