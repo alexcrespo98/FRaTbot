@@ -183,6 +183,12 @@ def create_interactive_analysis():
     
     This function creates ipywidgets controls and a matplotlib figure
     that work properly in Jupyter environments.
+    
+    Displays comprehensive analytics including:
+    - Summary statistics for all data pairs
+    - Theoretical vs experimental comparisons
+    - Correlation coefficients
+    - Interactive controls for adjusting parameters
     """
     
     if not JUPYTER_AVAILABLE:
@@ -192,9 +198,108 @@ def create_interactive_analysis():
         return
     
     # Load data
+    print("\n" + "="*80)
+    print("FLOW ANALYSIS: EXPERIMENTAL VS THEORETICAL TEMPERATURE AMPLITUDE DECAY")
+    print("="*80)
+    
     experimental_df = load_preprocessed_data(CONFIG)
     experimental_df = experimental_df.sort_values('flow_rate').reset_index(drop=True)
     n_pairs = len(experimental_df)
+    
+    print(f"\n✓ Loaded {n_pairs} flow rate pairs")
+    print(f"✓ Target frequency: {CONFIG['target_frequency_hz']} Hz")
+    print(f"✓ Flow rate range: {experimental_df['flow_rate'].min():.1f} - {experimental_df['flow_rate'].max():.1f} GPM")
+    
+    # Print detailed experimental data summary
+    print("\n" + "="*80)
+    print("EXPERIMENTAL DATA SUMMARY")
+    print("="*80)
+    print(f"{'Flow Rate':<12} {'Prox Amp':<12} {'Dist Amp':<12} {'Diff':<12} {'Ratio':<12}")
+    print(f"{'(GPM)':<12} {'(°C)':<12} {'(°C)':<12} {'(°C)':<12} {'(Dist/Prox)':<12}")
+    print("-"*80)
+    
+    for _, row in experimental_df.iterrows():
+        print(f"{row['flow_rate']:<12.1f} {row['prox_amp_C']:<12.3f} {row['dist_amp_C']:<12.3f} "
+              f"{row['amp_diff_C']:<12.3f} {row['amp_ratio_dist_over_prox']:<12.3f}")
+    
+    # Calculate and print correlations
+    print("\n" + "="*80)
+    print("CORRELATION ANALYSIS")
+    print("="*80)
+    
+    corr_ratio = np.corrcoef(experimental_df['flow_rate'], experimental_df['amp_ratio_dist_over_prox'])[0, 1]
+    corr_diff = np.corrcoef(experimental_df['flow_rate'], experimental_df['amp_diff_C'])[0, 1]
+    
+    print(f"Amplitude Ratio vs Flow Rate:      r = {corr_ratio:+.3f}")
+    print(f"Amplitude Difference vs Flow Rate:  r = {corr_diff:+.3f}")
+    
+    # Print physical parameters
+    pipe_diameter_m = CONFIG['pipe_diameter_inch'] * 0.0254
+    distance_m = CONFIG['sensor_distance_ft'] * 0.3048
+    alpha = CONFIG['water_thermal_diffusivity_m2s']
+    frequency_hz = CONFIG['target_frequency_hz']
+    scale_factor = CONFIG['attenuation_scale_factor']
+    
+    print("\n" + "="*80)
+    print("PHYSICAL PARAMETERS")
+    print("="*80)
+    print(f"Pipe diameter:        {CONFIG['pipe_diameter_inch']:.2f} inches ({pipe_diameter_m:.5f} m)")
+    print(f"Sensor distance:      {CONFIG['sensor_distance_ft']:.0f} ft ({distance_m:.2f} m)")
+    print(f"Thermal diffusivity:  {alpha:.2e} m²/s (water at 20°C)")
+    print(f"Drive frequency:      {frequency_hz:.3f} Hz")
+    print(f"Scale factor (k):     {scale_factor:.5f}")
+    
+    # Calculate theoretical predictions for each experimental point
+    print("\n" + "="*80)
+    print("THEORETICAL VS EXPERIMENTAL COMPARISON")
+    print("="*80)
+    print(f"{'Flow Rate':<12} {'Exp Ratio':<12} {'Theo Ratio':<12} {'Error':<12} {'% Error':<12}")
+    print(f"{'(GPM)':<12} {'(Dist/Prox)':<12} {'(Dist/Prox)':<12} {'(abs)':<12} {'(%)':<12}")
+    print("-"*80)
+    
+    mean_prox_amp = experimental_df['prox_amp_C'].mean()
+    rmse = 0.0
+    
+    for _, row in experimental_df.iterrows():
+        theo_ratio = calculate_theoretical_amplitude_ratio(
+            row['flow_rate'], frequency_hz, distance_m, pipe_diameter_m,
+            alpha, scale_factor, 0.0
+        )
+        exp_ratio = row['amp_ratio_dist_over_prox']
+        error = abs(exp_ratio - theo_ratio)
+        pct_error = 100 * error / exp_ratio if exp_ratio != 0 else 0
+        rmse += error**2
+        
+        print(f"{row['flow_rate']:<12.1f} {exp_ratio:<12.3f} {theo_ratio:<12.3f} "
+              f"{error:<12.3f} {pct_error:<12.1f}")
+    
+    rmse = np.sqrt(rmse / len(experimental_df))
+    print("-"*80)
+    print(f"RMSE (Root Mean Square Error): {rmse:.4f}")
+    
+    # Print theoretical model equation
+    print("\n" + "="*80)
+    print("THEORETICAL MODEL")
+    print("="*80)
+    print("Phenomenological amplitude decay:")
+    print("  A(x)/A₀ = exp(-β·x) + adjustment")
+    print("")
+    print("Where:")
+    print(f"  β = k·(ω/v)·√(R²/α)")
+    print(f"  k = {scale_factor:.5f} (empirical scale factor)")
+    print(f"  ω = 2πf = {2*np.pi*frequency_hz:.4f} rad/s")
+    print(f"  v = flow velocity (m/s)")
+    print(f"  R = {pipe_diameter_m/2:.5f} m (pipe radius)")
+    print(f"  α = {alpha:.2e} m²/s (thermal diffusivity)")
+    
+    print("\n" + "="*80)
+    print("INTERACTIVE CONTROLS")
+    print("="*80)
+    print("Use the controls below to:")
+    print("  • Adjust the theoretical curve offset (adjustment parameter)")
+    print("  • Include/exclude specific data points")
+    print("  • All 6 plots will update automatically")
+    print("="*80 + "\n")
     
     # Physical parameters
     pipe_diameter_m = CONFIG['pipe_diameter_inch'] * 0.0254
